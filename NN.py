@@ -1,52 +1,32 @@
 import numpy as np
-from Base import MyModule, MyModel
+from Base import Module, Model
 
-class linear(MyModule):
-    def __init__(self, input_size:int, output_size:int, learning_rate:float=0.01) -> None:
-        self.W = np.random.rand(output_size, input_size)
-        self.b = np.random.rand(output_size, 1)
+class linear(Module):
+    def __init__(self, input_size:int, output_size:int) -> None:
+        self.W = np.random.uniform(-1, 1, (input_size, output_size))
+        self.b = np.random.uniform(-1, 1, (1, output_size))
 
         self.x = None
-        self.lr = learning_rate
 
-    def forward(self, input):
-        self.x = input
-        return np.dot(self.W, input) + self.b   
+    def forward(self, x):
+        self.x = x
+        return np.dot(x, self.W) + self.b
     
-    def backward(self, output_gradient):
-        dx = np.dot(self.W.T, output_gradient)
-        dW = np.dot(output_gradient, self.x.T)
-        db = output_gradient
-        
-        self.W -= self.learning_rate * dW
-        self.b -= self.learning_rate * db
+    def backward(self, dy: np.ndarray, learning_rate: float) -> np.ndarray:
+        batch_size = dy.shape[0]
+
+        dx = np.dot(dy, self.W.T)  # (batch_size, input_size)
+        dW = np.dot(self.x.T, dy) / batch_size  # (input_size, output_size)
+        db = np.sum(dy, axis=0, keepdims=True) / batch_size  # (1, output_size)
+
+        self.W -= learning_rate * dW
+        self.b -= learning_rate * db
 
         return dx
 
-class ReLU(MyModule):
-    def __init__(self) -> None:
-        self.x
-
-    def forward(self, input):
-        self.x = input
-        return np.max(0, input)
+class ReLU(Module):
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        return np.max(0, x)
     
-    def backward(self, output_gradient):
-        return float(self.x > 0) * output_gradient
-    
-class NN(MyModel):
-    def __init__(self) -> None:
-        input_size = 28*28
-        h1_size = 256
-        h2_size = 128
-        output_size = 10
-
-        self.linear1 = linear(input_size, h1_size)
-        self.linear2 = linear(h1_size, h2_size)
-        self.linear3 = linear(h2_size, output_size)
-        self.relu = ReLU()
-
-    def forward(self, input):
-        x = input
-        x = linear.forward(x)
-        
+    def backward(self, dy: np.ndarray, learning_rate: float) -> np.ndarray:
+        return float(self.x > 0) * dy
