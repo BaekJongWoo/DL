@@ -1,19 +1,21 @@
 import numpy as np
 
 class Loss:
-    def __call__(self, y: np.ndarray, y_pred: np.ndarray) -> tuple:
+    def __call__(self, y: np.ndarray, y_pred: np.ndarray, no_grad = False) -> tuple:
         raise NotImplementedError()
 
 class CrossEntropyLoss:
-    def __call__(self, y: np.ndarray, y_pred: np.ndarray) -> tuple:
+    def __call__(self, y: np.ndarray, y_pred: np.ndarray, no_grad = False) -> tuple:
         softmax_pred = self.softmax(y_pred)
         correct_class_probs = np.sum(y * softmax_pred, axis=1)
         
         loss = -np.log(correct_class_probs)
         loss = np.mean(loss)
         
-        grad = softmax_pred - y
-        grad = grad / y.shape[0]
+        grad = 0
+        if not no_grad:
+            grad = softmax_pred - y
+            grad = grad / y.shape[0]
 
         return loss, grad
     
