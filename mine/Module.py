@@ -32,9 +32,9 @@ class Linear(Module):
     def backward(self, grad: np.ndarray, learning_rate: float) -> np.ndarray:
         batch_size = grad.shape[0]
 
-        dx = np.dot(grad, self.W.T)  # (batch_size, input_size)
-        dW = np.dot(self.x.T, grad) / batch_size  # (input_size, output_size)
-        db = np.sum(grad, axis=0, keepdims=True) / batch_size  # (1, output_size)
+        dx = np.dot(grad, self.W.T)
+        dW = np.dot(self.x.T, grad) / batch_size
+        db = np.sum(grad, axis=0, keepdims=True) / batch_size
 
         self.W -= learning_rate * dW
         self.b -= learning_rate * db
@@ -166,6 +166,28 @@ class MaxPooling(Module):
 
         return dx
 
+class BatchNorm1D(Module):
+    def __init__(self, epsilon=1e-5) -> None:
+        self.epsilon = epsilon
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        batch_mean = np.mean(x, axis=0, keepdims=True)
+        self.batch_var = np.var(x, axis=0, keepdims=True)
+        self.x_normalized = (x - batch_mean) / np.sqrt(self.batch_var + self.epsilon)
+        return self.x_normalized
+    
+    def backward(self, grad: np.ndarray, learning_rate: float) -> np.ndarray:
+        N, D = grad.shape
+        
+        x_mu = self.x_normalized * np.sqrt(self.batch_var + self.epsilon)
+        inv_var = 1.0 / np.sqrt(self.batch_var + self.epsilon)
+
+        dx_normalized = grad
+        dvar = np.sum(dx_normalized * (x_mu) * (-0.5) * inv_var**3, axis=0)
+        dmean = np.sum(dx_normalized * (-inv_var), axis=0) + dvar * np.mean(-2.0 * x_mu, axis=0)        
+        dx = (dx_normalized * inv_var) + (dvar * 2.0 * x_mu / N) + (dmean / N)
+        
+        return dx
 
 class ReLU(Module):
     def forward(self, x: np.ndarray) -> np.ndarray:

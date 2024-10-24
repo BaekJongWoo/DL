@@ -1,6 +1,7 @@
 from dataset.dataloader import Dataloader
+
 from mine.model import Sequantial, Model
-from mine.module import Conv2D, Flatten, Linear, MaxPooling, ReLU
+from mine.module import Conv2D, Flatten, Linear, MaxPooling, ReLU, BatchNorm1D
 from mine.loss import CrossEntropyLoss, softmax
 
 from tqdm import tqdm
@@ -19,7 +20,8 @@ def MyNN():
         ReLU(),
         Linear(h1_size, h2_size),
         ReLU(),
-        Linear(h2_size, 10)
+        Linear(h2_size, 10),
+        BatchNorm1D()
     ])
     return model
 
@@ -33,29 +35,43 @@ def MyCNN():
         MaxPooling(),                   # n 5 4 4
         Flatten(),                      # n 80
         Linear(80, 10),
+        BatchNorm1D()
     ])
     return model
 
-def drawLosses(train_loss_values, test_loss_values):
+def MyCNN2():
+    model = Sequantial([                # n 1 28 28
+        Conv2D(1, 10, kernel_size=5),   # n 10 24 24
+        ReLU(),
+        MaxPooling(),                   # n 10 12 12
+        Conv2D(10, 10, kernel_size=5),  # n 10 8 8
+        ReLU(),
+        MaxPooling(),                   # n 10 4 4
+        Flatten(),                      # n 160
+        Linear(160, 10),
+        BatchNorm1D()
+    ])
+    return model
+
+
+def PrintLosses(train_loss_values, test_loss_values):
+    term = 50
+
     loss_values = np.array(train_loss_values)
-    n = 100
-    term = len(loss_values) // n
+    n = len(loss_values) // term
     split_values = np.split(loss_values, n)
     mean_values = np.mean(split_values, axis=1)
     x_values = np.arange(0, len(loss_values), term)
 
-    # Plot the Train Loss with Mean ± Standard Deviation
     plt.figure()
     plt.plot(x_values, mean_values, label="Train Loss", alpha=0.6, color='b')
 
     loss_values = np.array(test_loss_values)
-    n = 100
-    term = len(loss_values) // n
+    n = len(loss_values) // term
     split_values = np.split(loss_values, n)
     mean_values = np.mean(split_values, axis=1)
     x_values = np.arange(0, len(loss_values), term)
 
-    # Plot the Train Loss with Mean ± Standard Deviation
     plt.plot(x_values, mean_values, label="Test Loss", alpha=0.6, color='r')
 
     # plt.yscale('log')
@@ -95,7 +111,6 @@ def train(model: Model, train_dataloader: Dataloader, test_dataloader: Dataloade
                 test_data = test_dataloader[test_idx]
                 tx, ty = test_data
                 ty_pred = model.forward(tx)
-                print(ty_pred)
                 tloss, _ = loss_fn(ty, ty_pred, no_grad=True)
 
                 test_loss_values.append(tloss)
@@ -110,7 +125,9 @@ def train(model: Model, train_dataloader: Dataloader, test_dataloader: Dataloade
         avg_test_loss = total_test_loss / len(train_dataloader)
         print(f"Epoch {epoch+1} completed. Average Train Loss: {avg_train_loss:.4f}, Averge Test Loss: {avg_test_loss:.4f}")
 
-        drawLosses(train_loss_values, test_loss_values)
+        PrintLosses(train_loss_values, test_loss_values)
+        PrintCM(model, test_dataloader)
+        PrintTop3(model, test_dataloader)
         
 def PrintCM(model: Model, test_dataloader: Dataloader):
     y_true = []
@@ -125,10 +142,8 @@ def PrintCM(model: Model, test_dataloader: Dataloader):
         y_true.extend(np.argmax(ty, axis=1))
         y_pred.extend(np.argmax(ty_pred, axis=1))
 
-    # Confusion Matrix 생성
     cm = confusion_matrix(y_true, y_pred)
     
-    # Confusion Matrix 시각화
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=np.unique(y_true), yticklabels=np.unique(y_true))
     plt.xlabel("Predicted Label")
@@ -141,30 +156,25 @@ def PrintCM(model: Model, test_dataloader: Dataloader):
 
 
 def PrintTop3(model: Model, test_dataloader: Dataloader):
-    # 각 숫자 (0-9)에 대해 상위 3개의 확률과 이미지를 저장할 배열
-    top3_prob = np.zeros((10, 3))  # 각 클래스의 상위 3개 확률을 저장할 배열
-    top3_image = np.zeros((10, 3), dtype=object)  # 각 클래스의 상위 3개 이미지를 저장할 배열
+    top3_prob = np.zeros((10, 3))
+    top3_image = np.zeros((10, 3), dtype=object)
 
     print("\nGenerating Top 3 Images")
     for test_data in tqdm(test_dataloader, desc="Finding Top 3 Images"):
-        tx, ty = test_data  # tx: 이미지, ty: 실제 라벨
+        tx, ty = test_data
 
-        # 모델로 예측
         ty_pred = model.forward(tx)
 
         ty_pred_probs = np.max(softmax(ty_pred), axis=1)
         ty_pred_index = np.argmax(ty_pred, axis=1)
 
-        # 각 이미지에 대한 예측 확률
         for idx in range(len(ty_pred_index)):
             pred_prob = ty_pred_probs[idx]
             pred_index = ty_pred_index[idx]
-            image = tx[idx]  # 해당 이미지
+            image = tx[idx]
 
-            # 만약 현재 확률이 상위 3개에 포함된다면 업데이트
             for i in range(3):
                 if pred_prob > top3_prob[pred_index, i]:
-                    # i번째 확률보다 높다면, 해당 확률과 이미지를 그 자리에 넣고, 나머지 하나씩 밀기
                     top3_prob[pred_index, i+1:] = top3_prob[pred_index, i:-1]
                     top3_image[pred_index, i+1:] = top3_image[pred_index, i:-1]
 
@@ -172,35 +182,30 @@ def PrintTop3(model: Model, test_dataloader: Dataloader):
                     top3_image[pred_index, i] = image
                     break
 
-    fig, axes = plt.subplots(10, 3, figsize=(12, 30))  # 10행 3열의 서브플롯
-    fig.suptitle("Top 3 Images for Each Digit", fontsize=16)
+    fig, axes = plt.subplots(10, 3, figsize=(12, 30))
+    fig.suptitle("Top 3 Probability", fontsize=50)
 
-    # 각 숫자에 대해 상위 3개의 이미지를 출력
     for num in range(10):
         for i in range(3):
             if top3_image[num, i] is not None:
                 axes[num, i].imshow(top3_image[num, i].squeeze(), cmap='gray')
-                axes[num, i].set_title(f"Prob: {top3_prob[num, i]:.4f}")
+                axes[num, i].set_title(f"{top3_prob[num, i]*100:3.2f}%", fontsize=30)
                 axes[num, i].axis('off')
-                
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.savefig(f"top_3_images.png")
     plt.close()
 
-    print("Complete")
+    print("Complete.")
 
 if __name__ == "__main__":
     batch_size = 50
-    epoch_num = 1
-    learning_rate = 1e-2
+    epoch_num = 10
+    learning_rate = 0.5
 
     train_dataloader = Dataloader('dataset', is_train=True, batch_size=batch_size) # total 60000
     test_dataloader = Dataloader('dataset', is_train=False, batch_size=batch_size) # total 10000
 
-    model = MyNN()
+    model = MyCNN2()
 
     train(model, train_dataloader, test_dataloader, epoch_num, learning_rate)
-
-    PrintCM(model, test_dataloader)
-
-    PrintTop3(model, test_dataloader)
