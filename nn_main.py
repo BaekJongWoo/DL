@@ -1,8 +1,9 @@
-from dataset.dataloader import Dataloader
-
-from mine.model import Sequantial, Model
-from mine.module import Conv2D, Flatten, Linear, MaxPooling, ReLU, BatchNorm1D
+from data.MNIST.dataloader import MNISTDataloader
+from mine.model import Sequantial, ModelBase
+from mine.layer import Conv2D, Linear
+from mine.util import Flatten, MaxPooling, BatchNorm1D
 from mine.loss import CrossEntropyLoss, softmax
+from mine.activation import ReLU
 
 from tqdm import tqdm
 import numpy as np
@@ -26,20 +27,6 @@ def MyNN():
     return model
 
 def MyCNN():
-    model = Sequantial([                # n 1 28 28
-        Conv2D(1, 3, kernel_size=3),    # n 3 26 26
-        ReLU(),
-        MaxPooling(),                   # n 3 13 13
-        Conv2D(3, 5, kernel_size=6),    # n 5 8 8
-        ReLU(),
-        MaxPooling(),                   # n 5 4 4
-        Flatten(),                      # n 80
-        Linear(80, 10),
-        BatchNorm1D()
-    ])
-    return model
-
-def MyCNN2():
     model = Sequantial([                # n 1 28 28
         Conv2D(1, 10, kernel_size=5),   # n 10 24 24
         ReLU(),
@@ -82,7 +69,7 @@ def PrintLosses(train_loss_values, test_loss_values):
     plt.savefig(f"loss_graph.png")
     plt.close()
 
-def train(model: Model, train_dataloader: Dataloader, test_dataloader: Dataloader, epoch_num: int, learning_rate: float):
+def train(model: ModelBase, train_dataloader: MNISTDataloader, test_dataloader: MNISTDataloader, epoch_num: int, learning_rate: float):
     
     loss_fn = CrossEntropyLoss()
     
@@ -129,7 +116,7 @@ def train(model: Model, train_dataloader: Dataloader, test_dataloader: Dataloade
         PrintCM(model, test_dataloader)
         PrintTop3(model, test_dataloader)
         
-def PrintCM(model: Model, test_dataloader: Dataloader):
+def PrintCM(model: ModelBase, test_dataloader: MNISTDataloader):
     y_true = []
     y_pred = []
     
@@ -155,7 +142,7 @@ def PrintCM(model: Model, test_dataloader: Dataloader):
     print("Complete.")
 
 
-def PrintTop3(model: Model, test_dataloader: Dataloader):
+def PrintTop3(model: ModelBase, test_dataloader: MNISTDataloader):
     top3_prob = np.zeros((10, 3))
     top3_image = np.zeros((10, 3), dtype=object)
 
@@ -200,12 +187,12 @@ def PrintTop3(model: Model, test_dataloader: Dataloader):
 
 if __name__ == "__main__":
     batch_size = 50
-    epoch_num = 10
+    epoch_num = 30
     learning_rate = 0.5
 
-    train_dataloader = Dataloader('dataset', is_train=True, batch_size=batch_size) # total 60000
-    test_dataloader = Dataloader('dataset', is_train=False, batch_size=batch_size) # total 10000
+    train_dataloader = MNISTDataloader('dataset', is_train=True, batch_size=batch_size) # total 60000
+    test_dataloader = MNISTDataloader('dataset', is_train=False, batch_size=batch_size) # total 10000
 
-    model = MyCNN2()
+    model = MyCNN()
 
     train(model, train_dataloader, test_dataloader, epoch_num, learning_rate)

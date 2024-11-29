@@ -23,7 +23,6 @@ class CrossEntropyLoss:
             grad = grad / y.shape[0]
 
         return loss, grad
-    
 
 if __name__ == "__main__":
     arr = np.array([[100,500,900]])
