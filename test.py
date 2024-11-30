@@ -19,12 +19,16 @@ def testModel(optimizer):
  
 
 def test(model: ModelBase, test_dataloader: dataLoader):
+    loss_fn = CrossEntropyLoss()
+    
     data = test_dataloader[0]
     x, y = data
 
     print(x.shape)
 
     y_pred = model.forward(x)
+    loss, grad = loss_fn(y, y_pred)
+    model.backward(grad)
 
     print(y_pred.shape)
 

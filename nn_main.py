@@ -1,7 +1,7 @@
 from data.MNIST.dataloader import MNISTDataloader
 from mine.model import Sequantial, ModelBase
 from mine.layer import Conv2D, Linear
-from mine.util import Flatten, MaxPooling, BatchNorm1D
+from mine.util_layer import Flatten, MaxPooling, BatchNorm1D
 from mine.loss import CrossEntropyLoss, softmax
 from mine.activation import ReLU
 

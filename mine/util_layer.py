@@ -1,7 +1,7 @@
 import numpy as np
 from mine.model import ModelBase
 
-class Flatten:
+class Flatten(ModelBase):
     def __init__(self):
         self.input_shape = None
 
@@ -11,7 +11,25 @@ class Flatten:
 
     def backward(self, grad: np.ndarray, learning_rate:float) -> np.ndarray:
         return grad.reshape(self.input_shape)
+
+class Dropout(ModelBase):
+    def __init__(self, drop_rate:float = 0.1):
+        assert 0 <= drop_rate < 1, "Dropout rate must be in the range [0, 1)."
+        self.drop_rate = drop_rate
+        self.mask = None
+
+    def forward(self, x, is_train: bool):
+        if is_train:
+            self.mask = np.random.binomial(1, p=(1 - self.drop_rate), size=x.shape)
+            return (x * self.mask) * (1 - self.drop_rate)
+        else:
+            return x
     
+    def backward(self, grad):
+        if self.mask is None:
+            raise ValueError("Dropout mask is not set")
+        return grad * self.mask
+
 class MaxPooling(ModelBase):
     def __init__(self, pool_size: int = 2, stride: int = 2):
         self.pool_size = pool_size

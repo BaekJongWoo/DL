@@ -2,8 +2,8 @@ import numpy as np
 from mine.model import ModelBase
 from mine.activation import tanh, sigmoid
 
-class RecurentBase(ModelBase): # many to one base
-    def __init__(self, to_many):
+class RecurentBase(ModelBase):
+    def __init__(self, to_many: bool):
         super().__init__()
         self.to_many = to_many
 
@@ -13,7 +13,7 @@ class RecurentBase(ModelBase): # many to one base
     def stepBackward(self, x: np.ndarray, h: np.ndarray, y:np.ndarray, grad_y: np.ndarray, grad_h: np.ndarray) -> np.ndarray:
         raise NotImplementedError()
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x: np.ndarray, is_train: bool) -> np.ndarray:
         self.xt = []
         self.ht = []
         self.yt = []
@@ -22,7 +22,7 @@ class RecurentBase(ModelBase): # many to one base
         h = None
         
         self.seq_lengths = np.sum(np.any(x != 0, axis=2), axis=1)
-        print(self.seq_lengths)
+        # print(self.seq_lengths)
 
         for i in range(self.n):
             x_slice = x[:, i, :]
@@ -37,38 +37,44 @@ class RecurentBase(ModelBase): # many to one base
         batch_size = x.shape[0]
 
         if self.to_many:
-            outputs = np.stack(self.yt, axis=1)
-
+            output = np.stack(self.yt, axis=1)
+            mask = np.zeros_like(output)
             for b in range(batch_size):
                 valid_length = self.seq_lengths[b]
-                outputs[b, valid_length:, :] = 0
-
-            return outputs
+                mask[b, :valid_length, :] = 1
+            return output * mask
         else:
-            final_outputs = np.zeros((batch_size, y.shape[-1]))
-
+            output = np.zeros((batch_size, y.shape[-1]))
             for b in range(batch_size):
                 valid_length = self.seq_lengths[b] - 1
-                final_outputs[b] = self.yt[valid_length][b]
-
-            return final_outputs
+                output[b] = self.yt[valid_length][b]
+            return output
     
     def backward(self, grad_y: np.ndarray) -> np.ndarray:
         grad_xt = []
 
-        # Mask the gradients to ignore padded time steps
-        for b in range(grad_y.shape[0]):
-            valid_length = self.seq_lengths[b]  # Use seq_lengths calculated during forward
-            grad_y[b, valid_length:, :] = 0  # Set gradients of padded time steps to 0
+        batch_size = grad_y.shape[0]
 
-        grad_h = None  # Initialize hidden state gradient
+        if self.to_many:
+            for b in range(batch_size):
+                valid_length = self.seq_lengths[b]
+                grad_y[b, valid_length:, :] = 0
+            grad_yt = grad_y
+        else:
+            grad_yt = np.zeros((batch_size, self.n, grad_y.shape[1]))
+            for b in range(batch_size):
+                valid_length = self.seq_lengths[b] - 1
+                grad_yt[b, valid_length] = grad_y[b]
+        
+
+        grad_h = None
         for t in reversed(range(self.n)):
-            x = self.xt.pop()
-            h = self.ht.pop()
-            y = self.yt.pop()
+            x = self.xt[t]
+            h = self.ht[t]
+            y = self.yt[t]
 
-            # Apply backward step for current time step
-            grad_x, grad_h = self.stepBackward(x, h, y, grad_y[:, t, :], grad_h)
+            grad_h = np.zeros_like(h) if grad_h is None else grad_h
+            grad_x, grad_h = self.stepBackward(x, h, y, grad_yt[:, t, :], grad_h)
             grad_xt.insert(0, grad_x)
 
         return np.stack(grad_xt, axis=1)
@@ -107,17 +113,54 @@ class LSTM(RecurentBase):
     
     def stepBackward(self, x, h, y, grad_y, grad_h):
         h_prev, c_prev = h
-        if grad_h is None:
-            grad_h = np.zeros((x.shape[0], self.h_size))
-            grad_c = np.zeros((x.shape[0], self.h_size))
-        else:
-            grad_h, grad_c = grad_h 
-                
+        grad_h_next, grad_c_next = grad_h
+        grad_h_next += grad_y
 
+        xh = np.concatenate([x, h_prev], axis=1)
+
+        ft = sigmoid.s_forward(np.dot(xh, self.Wf) + self.bf)
+        it = sigmoid.s_forward(np.dot(xh, self.Wi) + self.bi)
+        ct = tanh.s_forward(np.dot(xh, self.Wc) + self.bc)
+        ot = sigmoid.s_forward(np.dot(xh, self.Wo) + self.bo)
+
+        grad_c = grad_c_next + grad_h_next * ot * (1 - np.tanh(c_prev) ** 2)
+
+        grad_ft = c_prev * sigmoid.s_backward(ft, grad_c)
+        grad_it = ct * sigmoid.s_backward(it, grad_c)
+        grad_ct = it * tanh.s_backward(ct, grad_c)
+        grad_ot = tanh.s_forward(c_prev) * sigmoid.s_backward(ot, grad_h_next)
+
+        dWf = np.dot(xh.T, grad_ft)
+        dWi = np.dot(xh.T, grad_it)
+        dWc = np.dot(xh.T, grad_ct)
+        dWo = np.dot(xh.T, grad_ot)
+
+        dbf = np.sum(grad_ft, axis=0, keepdims=True)
+        dbi = np.sum(grad_it, axis=0, keepdims=True)
+        dbc = np.sum(grad_ct, axis=0, keepdims=True)
+        dbo = np.sum(grad_ot, axis=0, keepdims=True)
+
+        grad_xh = (
+            np.dot(grad_ft, self.Wf.T) +
+            np.dot(grad_it, self.Wi.T) +
+            np.dot(grad_ct, self.Wc.T) +
+            np.dot(grad_ot, self.Wo.T)
+        )
+        grad_x = grad_xh[:, :x.shape[1]]
+        grad_h_prev = grad_xh[:, x.shape[1]:]
+
+        grad_c_prev = grad_c * ft
+
+        self.optimizer.step(
+            [self.Wf, self.Wi, self.Wc, self.Wo, self.bf, self.bi, self.bc, self.bo],
+            [dWf, dWi, dWc, dWo, dbf, dbi, dbc, dbo]
+        )
+
+        return grad_x, (grad_h_prev, grad_c_prev)
 
 class RNN(RecurentBase):
-    def __init__(self, x_size: int, h_size: int):
-        super().__init__()
+    def __init__(self, x_size: int, h_size: int, to_many:bool):
+        super().__init__(to_many)
         self.Wx = np.random.uniform(-1, 1, (x_size, h_size))
         self.Wh = np.random.uniform(-1, 1, (h_size, h_size))
         self.b = np.random.uniform(-1, 1, (1, h_size))
@@ -155,7 +198,7 @@ class Linear(ModelBase):
 
         self.x = None
 
-    def forward(self, x):
+    def forward(self, x, is_train: bool):
         self.x = x
         return np.dot(x, self.W) + self.b
     
@@ -183,7 +226,7 @@ class Conv2D(ModelBase):
 
         self.x = None
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x: np.ndarray, is_train: bool) -> np.ndarray:
         self.x = x
         batch_size, in_channels, in_height, in_width = x.shape
 
